@@ -1,0 +1,13 @@
+server.port: 5601
+server.host: "0.0.0.0"
+server.name: "kibana"
+
+server.ssl.enabled: true
+server.ssl.key: /etc/kibana/certs/kibana.key
+server.ssl.certificate: /etc/kibana/certs/kibana.crt
+
+xpack.encryptedSavedObjects.encryptionKey: "{{ kibana_encryption_key }}"
+
+elasticsearch.hosts: ["https://{{ hostvars['es']['ansible_host'] }}:9200"]
+elasticsearch.serviceAccountToken: "{{ hostvars['es']['kibana_service_token'] }}"
+elasticsearch.ssl.certificateAuthorities: ["/etc/kibana/certs/ca.crt"]

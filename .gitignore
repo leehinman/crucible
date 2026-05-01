@@ -1,0 +1,8 @@
+/.agent-shell/
+/.terraform.lock.hcl
+/.terraform/
+/certs/
+/cloud-init.yaml
+/inventory.ini
+/terraform.tfstate
+/terraform.tfstate.backup

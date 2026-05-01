@@ -1,0 +1,13 @@
+[elasticsearch]
+es ansible_host=${es_ip} ansible_user=ubuntu
+
+[kibana]
+kibana ansible_host=${kibana_ip} ansible_user=ubuntu
+
+[fleet]
+fleet ansible_host=${fleet_ip} ansible_user=ubuntu
+
+[agents]
+%{~ for i, ip in agent_ips }
+a${i + 1} ansible_host=${ip} ansible_user=ubuntu
+%{~ endfor }
