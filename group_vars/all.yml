@@ -13,7 +13,7 @@ gcp:
   region: "us-central1"
   zone: "us-central1-a"
 
-agent_count: 2
+agent_count: 1
 
 # Use ansible-vault to encrypt this in production:
 #   ansible-vault encrypt_string 'changeme' --name elastic_password

@@ -1,0 +1,10 @@
+---
+runners:
+  - generator:
+      type: "clf"
+    output:
+      type: file
+      directory: "/var/log/apache2/"
+      pattern: "access.log*"
+      delimiter: "\n"
+    records: 1000

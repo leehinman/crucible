@@ -1,0 +1,10 @@
+---
+runners:
+  - generator:
+      type: "clf"
+    output:
+      type: file
+      directory: "{{ spigot_directory }}"
+      pattern: "{{ spigot_pattern }}"
+      delimiter: "\n"
+    records: {{ spigot_records }}

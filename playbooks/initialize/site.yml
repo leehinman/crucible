@@ -471,6 +471,71 @@
       delegate_to: localhost
       become: false
 
+    - name: Get existing Fleet outputs
+      ansible.builtin.uri:
+        url: "https://{{ ansible_host }}:5601/api/fleet/outputs"
+        user: elastic
+        password: "{{ elastic_password }}"
+        force_basic_auth: true
+        ca_path: "{{ project_root }}/certs/ca.crt"
+      delegate_to: localhost
+      become: false
+      register: fleet_outputs
+
+    - name: Set default output ID
+      ansible.builtin.set_fact:
+        default_output_id: "{{ fleet_outputs.json['items'] | selectattr('is_default', 'defined') | selectattr('is_default') | map(attribute='id') | first | default('') }}"
+
+    - name: Update default Fleet output to point to Elasticsearch
+      ansible.builtin.uri:
+        url: "https://{{ ansible_host }}:5601/api/fleet/outputs/{{ default_output_id }}"
+        method: PUT
+        headers:
+          kbn-xsrf: "true"
+        body_format: json
+        body:
+          name: "default"
+          type: "elasticsearch"
+          hosts:
+            - "https://{{ hostvars['es']['ansible_host'] }}:9200"
+          is_default: true
+          is_default_monitoring: true
+          ssl:
+            certificate_authorities:
+              - "{{ lookup('file', project_root + '/certs/ca.crt') }}"
+        user: elastic
+        password: "{{ elastic_password }}"
+        force_basic_auth: true
+        ca_path: "{{ project_root }}/certs/ca.crt"
+      delegate_to: localhost
+      become: false
+      when: default_output_id != ''
+
+    - name: Create default Fleet output pointing to Elasticsearch
+      ansible.builtin.uri:
+        url: "https://{{ ansible_host }}:5601/api/fleet/outputs"
+        method: POST
+        headers:
+          kbn-xsrf: "true"
+        body_format: json
+        body:
+          name: "default"
+          type: "elasticsearch"
+          hosts:
+            - "https://{{ hostvars['es']['ansible_host'] }}:9200"
+          is_default: true
+          is_default_monitoring: true
+          ssl:
+            certificate_authorities:
+              - "{{ lookup('file', project_root + '/certs/ca.crt') }}"
+        user: elastic
+        password: "{{ elastic_password }}"
+        force_basic_auth: true
+        ca_path: "{{ project_root }}/certs/ca.crt"
+      delegate_to: localhost
+      become: false
+      when: default_output_id == ''
+
     - name: Get all agent policies for Fleet Server policy lookup
       ansible.builtin.uri:
         url: "https://{{ ansible_host }}:5601/api/fleet/agent_policies"

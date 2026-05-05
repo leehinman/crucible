@@ -1,0 +1,138 @@
+---
+# Play 1: Record start time using Elasticsearch host's clock
+- name: Record run start time
+  hosts: elasticsearch
+  gather_facts: true
+  vars_files:
+    - vars.yml
+
+  tasks:
+    - name: Record start time from Elasticsearch host clock
+      ansible.builtin.set_fact:
+        run_start_time: "{{ ansible_date_time.iso8601 }}"
+
+    - name: Show start time
+      ansible.builtin.debug:
+        msg: "Run started at {{ run_start_time }}"
+
+
+# Play 2: Start elastic-agent on all agents and verify
+- name: Start elastic-agent on agents
+  hosts: agents
+  gather_facts: false
+  vars_files:
+    - vars.yml
+
+  tasks:
+    - name: Start elastic-agent
+      ansible.builtin.systemd:
+        name: elastic-agent
+        state: started
+      become: true
+
+    - name: Verify elastic-agent is running
+      ansible.builtin.command:
+        cmd: elastic-agent status
+      become: true
+      register: agent_status
+      until: "'elastic-agent' in (agent_status.stdout | default(''))"
+      retries: 12
+      delay: 5
+      changed_when: false
+      failed_when: "'elastic-agent' not in (agent_status.stdout | default(''))"
+
+
+# Play 3: Monitor ingestion, record end time, and report throughput
+- name: Monitor ingestion and report throughput
+  hosts: elasticsearch
+  gather_facts: false
+  vars_files:
+    - vars.yml
+  vars:
+    project_root: "{{ playbook_dir }}/../.."
+    expected_docs: "{{ (agent_count | int) * (spigot_records | int) }}"
+    data_stream: "logs-apache.access-default"
+
+  tasks:
+    - name: Wait for all documents to be ingested
+      ansible.builtin.uri:
+        url: "https://{{ ansible_host }}:9200/{{ data_stream }}/_count"
+        user: elastic
+        password: "{{ elastic_password }}"
+        ca_path: "{{ project_root }}/certs/ca.crt"
+      delegate_to: localhost
+      become: false
+      register: doc_count_result
+      until: (doc_count_result.json.count | default(0) | int) >= (expected_docs | int)
+      retries: "{{ (ingest_timeout | int / 10) | int }}"
+      delay: 10
+      failed_when: false
+
+    - name: Fail on ingest timeout
+      ansible.builtin.fail:
+        msg: >-
+          Timed out after {{ ingest_timeout }}s waiting for {{ expected_docs }} documents.
+          Only {{ doc_count_result.json.count | default(0) }} ingested.
+      when: (doc_count_result.json.count | default(0) | int) < (expected_docs | int)
+
+    - name: Get end time from Elasticsearch host clock
+      ansible.builtin.command: date -u +%Y-%m-%dT%H:%M:%SZ
+      register: end_time_cmd
+      changed_when: false
+      become: false
+
+    - name: Set end time fact
+      ansible.builtin.set_fact:
+        run_end_time: "{{ end_time_cmd.stdout }}"
+
+    - name: Query min and max event.ingested
+      ansible.builtin.uri:
+        url: "https://{{ ansible_host }}:9200/{{ data_stream }}/_search"
+        method: POST
+        headers:
+          Content-Type: "application/json"
+        body_format: json
+        body:
+          size: 0
+          query:
+            range:
+              event.ingested:
+                gte: "{{ hostvars['es']['run_start_time'] }}"
+                lte: "{{ run_end_time }}"
+          aggs:
+            min_ingested:
+              min:
+                field: event.ingested
+                format: "strict_date_optional_time"
+            max_ingested:
+              max:
+                field: event.ingested
+                format: "strict_date_optional_time"
+        user: elastic
+        password: "{{ elastic_password }}"
+        ca_path: "{{ project_root }}/certs/ca.crt"
+      delegate_to: localhost
+      become: false
+      register: ingested_stats
+
+    - name: Compute ingestion duration
+      ansible.builtin.set_fact:
+        ingest_duration_ms: "{{ (ingested_stats.json.aggregations.max_ingested.value | int) - (ingested_stats.json.aggregations.min_ingested.value | int) }}"
+
+    - name: Compute throughput rate (duration > 0)
+      ansible.builtin.set_fact:
+        throughput_msg: "{{ (expected_docs | float / (ingest_duration_ms | int / 1000.0)) | round(2) }} events/sec"
+      when: ingest_duration_ms | int > 0
+
+    - name: Compute throughput rate (duration = 0)
+      ansible.builtin.set_fact:
+        throughput_msg: "{{ expected_docs }} events in <1ms"
+      when: ingest_duration_ms | int == 0
+
+    - name: Report throughput
+      ansible.builtin.debug:
+        msg: >-
+          Ingested {{ expected_docs }} documents.
+          First event.ingested: {{ ingested_stats.json.aggregations.min_ingested.value_as_string }}.
+          Last event.ingested: {{ ingested_stats.json.aggregations.max_ingested.value_as_string }}.
+          Average throughput: {{ throughput_msg }}.

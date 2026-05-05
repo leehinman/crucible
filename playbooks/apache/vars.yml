@@ -1,0 +1,5 @@
+---
+spigot_directory: "/var/log/apache2/"
+spigot_pattern: "access.log*"
+spigot_records: 1000
+ingest_timeout: 300

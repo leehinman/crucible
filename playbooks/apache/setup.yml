@@ -1,0 +1,245 @@
+---
+# Play 1: Add Apache integration to the Fleet default agent policy
+- name: Add Apache integration to Fleet default agent policy
+  hosts: kibana
+  gather_facts: false
+  vars_files:
+    - vars.yml
+  vars:
+    project_root: "{{ playbook_dir }}/../.."
+
+  tasks:
+    - name: Get Apache package version from EPM
+      ansible.builtin.uri:
+        url: "https://{{ ansible_host }}:5601/api/fleet/epm/packages/apache"
+        user: elastic
+        password: "{{ elastic_password }}"
+        force_basic_auth: true
+        ca_path: "{{ project_root }}/certs/ca.crt"
+        status_code: 200
+      delegate_to: localhost
+      become: false
+      register: apache_pkg
+
+    - name: Get all agent policies
+      ansible.builtin.uri:
+        url: "https://{{ ansible_host }}:5601/api/fleet/agent_policies"
+        user: elastic
+        password: "{{ elastic_password }}"
+        force_basic_auth: true
+        ca_path: "{{ project_root }}/certs/ca.crt"
+      delegate_to: localhost
+      become: false
+      register: all_policies
+
+    - name: Set default agent policy ID
+      ansible.builtin.set_fact:
+        default_policy_id: "{{ all_policies.json['items'] | selectattr('is_default', 'defined') | selectattr('is_default') | map(attribute='id') | first }}"
+
+    - name: Get existing package policies
+      ansible.builtin.uri:
+        url: "https://{{ ansible_host }}:5601/api/fleet/package_policies"
+        user: elastic
+        password: "{{ elastic_password }}"
+        force_basic_auth: true
+        ca_path: "{{ project_root }}/certs/ca.crt"
+      delegate_to: localhost
+      become: false
+      register: existing_package_policies
+
+    - name: Add Apache integration to default agent policy
+      ansible.builtin.uri:
+        url: "https://{{ ansible_host }}:5601/api/fleet/package_policies"
+        method: POST
+        headers:
+          kbn-xsrf: "true"
+        body_format: json
+        body:
+          name: "apache-1"
+          namespace: "default"
+          policy_ids:
+            - "{{ default_policy_id }}"
+          package:
+            name: "apache"
+            version: "{{ apache_pkg.json['item']['version'] }}"
+          inputs:
+            - type: "logfile"
+              enabled: true
+              streams:
+                - enabled: true
+                  data_stream:
+                    type: logs
+                    dataset: apache.access
+                  vars:
+                    paths:
+                      value:
+                        - "{{ spigot_directory + spigot_pattern }}"
+                    tags:
+                      value:
+                        - apache-access
+                    preserve_original_event:
+                      value: false
+                - enabled: true
+                  data_stream:
+                    type: logs
+                    dataset: apache.error
+                  vars:
+                    paths:
+                      value:
+                        - /var/log/apache2/error.log*
+                        - /var/log/httpd/error_log*
+                    tags:
+                      value:
+                        - apache-error
+                    preserve_original_event:
+                      value: false
+            - type: "apache/metrics"
+              enabled: true
+              vars:
+                hosts:
+                  value:
+                    - http://127.0.0.1
+              streams:
+                - enabled: true
+                  data_stream:
+                    type: metrics
+                    dataset: apache.status
+                  vars:
+                    period:
+                      value: 30s
+                    server_status_path:
+                      value: /server-status
+        user: elastic
+        password: "{{ elastic_password }}"
+        force_basic_auth: true
+        ca_path: "{{ project_root }}/certs/ca.crt"
+        status_code: [200, 201, 409]
+      delegate_to: localhost
+      become: false
+      when: (existing_package_policies.json['items'] | selectattr('package', 'defined') | selectattr('package.name', 'equalto', 'apache') | list | length) == 0
+
+    - name: Get updated default agent policy to read current revision
+      ansible.builtin.uri:
+        url: "https://{{ ansible_host }}:5601/api/fleet/agent_policies/{{ default_policy_id }}"
+        user: elastic
+        password: "{{ elastic_password }}"
+        force_basic_auth: true
+        ca_path: "{{ project_root }}/certs/ca.crt"
+      delegate_to: localhost
+      become: false
+      register: default_policy
+
+    - name: Store expected policy revision
+      ansible.builtin.set_fact:
+        expected_policy_revision: "{{ default_policy.json['item']['revision'] | int }}"
+
+    - name: Wait for all agents to apply the updated policy
+      ansible.builtin.uri:
+        url: "https://{{ ansible_host }}:5601/api/fleet/agents?perPage=100"
+        user: elastic
+        password: "{{ elastic_password }}"
+        force_basic_auth: true
+        ca_path: "{{ project_root }}/certs/ca.crt"
+      delegate_to: localhost
+      become: false
+      register: agents_status
+      until: >-
+        (agents_status.json['items'] |
+         selectattr('policy_id', 'defined') |
+         selectattr('policy_id', 'equalto', default_policy_id) |
+         list | length) > 0
+        and
+        (agents_status.json['items'] |
+         selectattr('policy_id', 'defined') |
+         selectattr('policy_id', 'equalto', default_policy_id) |
+         map(attribute='policy_revision') |
+         map('int') | list | min) >= (expected_policy_revision | int)
+      retries: 30
+      delay: 10
+
+
+# Play 2: Stop elastic-agent and deploy spigot on agents
+- name: Deploy and run spigot on agents
+  hosts: agents
+  gather_facts: false
+  vars_files:
+    - vars.yml
+  vars:
+    agent_home: "/home/{{ ansible_user }}"
+
+  tasks:
+    - name: Stop elastic-agent
+      ansible.builtin.systemd:
+        name: elastic-agent
+        state: stopped
+      become: true
+
+    - name: Copy spigot executable to agent home directory
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/files/spigot"
+        dest: "{{ agent_home }}/spigot"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: '0755'
+      become: true
+
+    - name: Copy spigot.yml to agent home directory
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/templates/spigot.yml.j2"
+        dest: "{{ agent_home }}/spigot.yml"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: '0644'
+      become: true
+
+    - name: Update apt cache (best-effort, short timeout)
+      ansible.builtin.shell:
+        cmd: apt-get -o Acquire::http::Timeout=5 -o Acquire::https::Timeout=5 update
+      become: true
+      ignore_errors: true
+      changed_when: false
+
+    - name: Install Apache
+      ansible.builtin.apt:
+        name: apache2
+        state: present
+      become: true
+
+    - name: Run spigot
+      ansible.builtin.command:
+        cmd: "{{ agent_home }}/spigot"
+        chdir: "{{ agent_home }}"
+      become: true
+      register: spigot_result
+      changed_when: true
+
+
+# Play 3: Delete Apache integration datastreams from Elasticsearch
+- name: Delete Apache integration datastreams from Elasticsearch
+  hosts: elasticsearch
+  gather_facts: false
+  vars:
+    project_root: "{{ playbook_dir }}/../.."
+
+  tasks:
+    - name: Delete Apache log datastreams
+      ansible.builtin.uri:
+        url: "https://{{ ansible_host }}:9200/_data_stream/logs-apache.*"
+        method: DELETE
+        user: elastic
+        password: "{{ elastic_password }}"
+        ca_path: "{{ project_root }}/certs/ca.crt"
+        status_code: [200, 404]
+      delegate_to: localhost
+      become: false
+
+    - name: Delete Apache metrics datastreams
+      ansible.builtin.uri:
+        url: "https://{{ ansible_host }}:9200/_data_stream/metrics-apache.*"
+        method: DELETE
+        user: elastic
+        password: "{{ elastic_password }}"
+        ca_path: "{{ project_root }}/certs/ca.crt"
+        status_code: [200, 404]
+      delegate_to: localhost
+      become: false
