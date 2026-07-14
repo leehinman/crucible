@@ -1,4 +1,4 @@
-provider: "multipass"  # choices: multipass, aws, gcp
+provider: "multipass"  # choices: multipass, aws, gcp, libvirt
 
 ssh_public_key_file: "~/.ssh/id_rsa_yubikey.pub"
 
@@ -23,3 +23,8 @@ elastic_version: "9.5.0-SNAPSHOT"  # override with e.g. 9.0.0 for version 9
 
 # Must be 32+ chars. Use ansible-vault to protect in production.
 kibana_encryption_key: "2473f2399b0fef80f52784ce93024a5f9be3da4d79907133f7f21a1926b253e7"
+
+# Libvirt provider config (used when provider: libvirt)
+libvirt:
+  uri: "qemu:///system"
+  storage_pool: "default"

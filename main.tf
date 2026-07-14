@@ -20,6 +20,10 @@ terraform {
       source  = "hashicorp/null"
       version = "~> 3.0"
     }
+    libvirt = {
+      source  = "dmacvicar/libvirt"
+      version = "~> 0.8"
+    }
   }
 }
 
@@ -33,6 +37,7 @@ locals {
   ssh_public_key      = trimspace(file(local.ssh_public_key_file))
   aws_cfg             = try(local.group_vars.aws, {})
   gcp_cfg             = try(local.group_vars.gcp, {})
+  libvirt_cfg         = try(local.group_vars.libvirt, {})
 }
 
 # ── Provider configurations ────────────────────────────────────────────────────
@@ -55,6 +60,10 @@ provider "google" {
   project = local.gcp_cfg.project != "" ? local.gcp_cfg.project : null
   region  = try(local.gcp_cfg.region, "us-central1")
   zone    = try(local.gcp_cfg.zone, "us-central1-a")
+}
+
+provider "libvirt" {
+  uri = try(local.libvirt_cfg.uri, "qemu:///system")
 }
 
 # ── Generate cloud-init.yaml ───────────────────────────────────────────────────
@@ -97,6 +106,16 @@ module "gcp" {
   providers       = { google = google }
 }
 
+module "libvirt" {
+  count           = local.provider_name == "libvirt" ? 1 : 0
+  source          = "./providers/libvirt"
+  ssh_key         = local.ssh_public_key
+  agent_count     = local.agent_count
+  cloud_init_file = local_file.cloud_init.filename
+  storage_pool    = try(local.libvirt_cfg.storage_pool, "default")
+  providers       = { libvirt = libvirt }
+}
+
 # ── Unify IPs from whichever module is active ─────────────────────────────────
 
 locals {
@@ -104,21 +123,25 @@ locals {
     try(module.multipass[0].es_ip, null),
     try(module.aws[0].es_ip,       null),
     try(module.gcp[0].es_ip,       null),
+    try(module.libvirt[0].es_ip,   null),
   )
   kibana_ip = coalesce(
     try(module.multipass[0].kibana_ip, null),
     try(module.aws[0].kibana_ip,       null),
     try(module.gcp[0].kibana_ip,       null),
+    try(module.libvirt[0].kibana_ip,   null),
   )
   fleet_ip = coalesce(
     try(module.multipass[0].fleet_ip, null),
     try(module.aws[0].fleet_ip,       null),
     try(module.gcp[0].fleet_ip,       null),
+    try(module.libvirt[0].fleet_ip,   null),
   )
   agent_ips = coalesce(
     try(module.multipass[0].agent_ips, null),
     try(module.aws[0].agent_ips,       null),
     try(module.gcp[0].agent_ips,       null),
+    try(module.libvirt[0].agent_ips,   null),
   )
 }
 
