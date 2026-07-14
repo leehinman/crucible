@@ -117,6 +117,7 @@
   become: true
   vars:
     project_root: "{{ playbook_dir }}/../.."
+  vars_files: [vars.yml]
 
   tasks:
     - name: Install prerequisites
@@ -133,17 +134,39 @@
         cmd: curl -fsSL https://artifacts.elastic.co/GPG-KEY-elasticsearch | gpg --dearmor -o /usr/share/keyrings/elasticsearch-keyring.gpg
         creates: /usr/share/keyrings/elasticsearch-keyring.gpg
 
-    - name: Add Elastic apt repository
-      ansible.builtin.apt_repository:
-        repo: "deb [signed-by=/usr/share/keyrings/elasticsearch-keyring.gpg] https://artifacts.elastic.co/packages/{{ elastic_version.split('.')[0] }}.x/apt stable main"
-        state: present
-        filename: "elastic-{{ elastic_version.split('.')[0] }}.x"
+    - name: Install Elasticsearch via apt repository
+      when: not (elastic_is_snapshot | bool)
+      block:
+        - name: Add Elastic apt repository
+          ansible.builtin.apt_repository:
+            repo: "deb [signed-by=/usr/share/keyrings/elasticsearch-keyring.gpg] {{ elastic_repo_url }} stable main"
+            state: present
+            filename: "elastic-{{ elastic_major_version }}.x"
+        - name: Install Elasticsearch
+          ansible.builtin.apt:
+            name: "elasticsearch={{ elastic_version_apt }}"
+            state: present
+            update_cache: true
 
-    - name: Install Elasticsearch
-      ansible.builtin.apt:
-        name: "elasticsearch={{ elastic_version }}"
-        state: present
-        update_cache: true
+    - name: Install Elasticsearch from snapshot deb
+      when: elastic_is_snapshot | bool
+      block:
+        - name: Look up Elasticsearch snapshot package URL
+          ansible.builtin.uri:
+            url: "{{ elastic_artifacts_api }}/elasticsearch-{{ elastic_version }}-{{ elastic_deb_arch }}.deb"
+            return_content: true
+          register: es_artifact
+          delegate_to: localhost
+          run_once: true
+          become: false
+        - name: Download Elasticsearch snapshot deb
+          ansible.builtin.get_url:
+            url: "{{ es_artifact.json.packages['elasticsearch-' + elastic_version + '-' + elastic_deb_arch + '.deb'].url }}"
+            dest: "/tmp/elasticsearch-{{ elastic_version }}.deb"
+        - name: Install Elasticsearch deb
+          ansible.builtin.apt:
+            deb: "/tmp/elasticsearch-{{ elastic_version }}.deb"
+            state: present
 
     - name: Create certs directory
       ansible.builtin.file:
@@ -310,6 +333,7 @@
   become: true
   vars:
     project_root: "{{ playbook_dir }}/../.."
+  vars_files: [vars.yml]
 
   tasks:
     - name: Install prerequisites
@@ -326,17 +350,39 @@
         cmd: curl -fsSL https://artifacts.elastic.co/GPG-KEY-elasticsearch | gpg --dearmor -o /usr/share/keyrings/elasticsearch-keyring.gpg
         creates: /usr/share/keyrings/elasticsearch-keyring.gpg
 
-    - name: Add Elastic apt repository
-      ansible.builtin.apt_repository:
-        repo: "deb [signed-by=/usr/share/keyrings/elasticsearch-keyring.gpg] https://artifacts.elastic.co/packages/{{ elastic_version.split('.')[0] }}.x/apt stable main"
-        state: present
-        filename: "elastic-{{ elastic_version.split('.')[0] }}.x"
+    - name: Install Kibana via apt repository
+      when: not (elastic_is_snapshot | bool)
+      block:
+        - name: Add Elastic apt repository
+          ansible.builtin.apt_repository:
+            repo: "deb [signed-by=/usr/share/keyrings/elasticsearch-keyring.gpg] {{ elastic_repo_url }} stable main"
+            state: present
+            filename: "elastic-{{ elastic_major_version }}.x"
+        - name: Install Kibana
+          ansible.builtin.apt:
+            name: "kibana={{ elastic_version_apt }}"
+            state: present
+            update_cache: true
 
-    - name: Install Kibana
-      ansible.builtin.apt:
-        name: "kibana={{ elastic_version }}"
-        state: present
-        update_cache: true
+    - name: Install Kibana from snapshot deb
+      when: elastic_is_snapshot | bool
+      block:
+        - name: Look up Kibana snapshot package URL
+          ansible.builtin.uri:
+            url: "{{ elastic_artifacts_api }}/kibana-{{ elastic_version }}-{{ elastic_deb_arch }}.deb"
+            return_content: true
+          register: kibana_artifact
+          delegate_to: localhost
+          run_once: true
+          become: false
+        - name: Download Kibana snapshot deb
+          ansible.builtin.get_url:
+            url: "{{ kibana_artifact.json.packages['kibana-' + elastic_version + '-' + elastic_deb_arch + '.deb'].url }}"
+            dest: "/tmp/kibana-{{ elastic_version }}.deb"
+        - name: Install Kibana deb
+          ansible.builtin.apt:
+            deb: "/tmp/kibana-{{ elastic_version }}.deb"
+            state: present
 
     - name: Create certs directory
       ansible.builtin.file:
@@ -729,6 +775,7 @@
   become: true
   vars:
     project_root: "{{ playbook_dir }}/../.."
+  vars_files: [vars.yml]
 
   tasks:
     - name: Install prerequisites
@@ -747,9 +794,10 @@
 
     - name: Add Elastic apt repository
       ansible.builtin.apt_repository:
-        repo: "deb [signed-by=/usr/share/keyrings/elasticsearch-keyring.gpg] https://artifacts.elastic.co/packages/{{ elastic_version.split('.')[0] }}.x/apt stable main"
+        repo: "deb [signed-by=/usr/share/keyrings/elasticsearch-keyring.gpg] {{ elastic_repo_url }} stable main"
         state: present
-        filename: "elastic-{{ elastic_version.split('.')[0] }}.x"
+        filename: "elastic-{{ elastic_major_version }}.x"
+      when: not (elastic_is_snapshot | bool)
 
     - name: Check if fleet-server component binary exists (complete flavor)
       ansible.builtin.find:
@@ -774,14 +822,38 @@
         purge: true
       when: fleet_server_binary.matched == 0
 
-    - name: Install elastic-agent with complete flavor (includes fleet-server)
+    - name: Install elastic-agent with complete flavor via apt (includes fleet-server)
       ansible.builtin.apt:
-        name: "elastic-agent={{ elastic_version }}"
+        name: "elastic-agent={{ elastic_version_apt }}"
         state: present
         update_cache: true
       environment:
         ELASTIC_AGENT_FLAVOR: complete
       ignore_errors: true
+      when: not (elastic_is_snapshot | bool)
+
+    - name: Install elastic-agent with complete flavor from snapshot deb
+      when: elastic_is_snapshot | bool
+      block:
+        - name: Look up elastic-agent snapshot package URL
+          ansible.builtin.uri:
+            url: "{{ elastic_artifacts_api }}/elastic-agent-{{ elastic_version }}-{{ elastic_deb_arch }}.deb"
+            return_content: true
+          register: agent_artifact
+          delegate_to: localhost
+          run_once: true
+          become: false
+        - name: Download elastic-agent snapshot deb
+          ansible.builtin.get_url:
+            url: "{{ agent_artifact.json.packages['elastic-agent-' + elastic_version + '-' + elastic_deb_arch + '.deb'].url }}"
+            dest: "/tmp/elastic-agent-{{ elastic_version }}.deb"
+        - name: Install elastic-agent deb (complete flavor)
+          ansible.builtin.apt:
+            deb: "/tmp/elastic-agent-{{ elastic_version }}.deb"
+            state: present
+          environment:
+            ELASTIC_AGENT_FLAVOR: complete
+          ignore_errors: true
 
     - name: Patch postinst to tolerate apply-flavor failure (ARM64 compatibility)
       ansible.builtin.replace:
@@ -862,6 +934,7 @@
   become: true
   vars:
     project_root: "{{ playbook_dir }}/../.."
+  vars_files: [vars.yml]
 
   tasks:
     - name: Install prerequisites
@@ -878,17 +951,39 @@
         cmd: curl -fsSL https://artifacts.elastic.co/GPG-KEY-elasticsearch | gpg --dearmor -o /usr/share/keyrings/elasticsearch-keyring.gpg
         creates: /usr/share/keyrings/elasticsearch-keyring.gpg
 
-    - name: Add Elastic apt repository
-      ansible.builtin.apt_repository:
-        repo: "deb [signed-by=/usr/share/keyrings/elasticsearch-keyring.gpg] https://artifacts.elastic.co/packages/{{ elastic_version.split('.')[0] }}.x/apt stable main"
-        state: present
-        filename: "elastic-{{ elastic_version.split('.')[0] }}.x"
+    - name: Install elastic-agent via apt repository
+      when: not (elastic_is_snapshot | bool)
+      block:
+        - name: Add Elastic apt repository
+          ansible.builtin.apt_repository:
+            repo: "deb [signed-by=/usr/share/keyrings/elasticsearch-keyring.gpg] {{ elastic_repo_url }} stable main"
+            state: present
+            filename: "elastic-{{ elastic_major_version }}.x"
+        - name: Install elastic-agent
+          ansible.builtin.apt:
+            name: "elastic-agent={{ elastic_version_apt }}"
+            state: present
+            update_cache: true
 
-    - name: Install elastic-agent
-      ansible.builtin.apt:
-        name: "elastic-agent={{ elastic_version }}"
-        state: present
-        update_cache: true
+    - name: Install elastic-agent from snapshot deb
+      when: elastic_is_snapshot | bool
+      block:
+        - name: Look up elastic-agent snapshot package URL
+          ansible.builtin.uri:
+            url: "{{ elastic_artifacts_api }}/elastic-agent-{{ elastic_version }}-{{ elastic_deb_arch }}.deb"
+            return_content: true
+          register: agent_artifact
+          delegate_to: localhost
+          run_once: true
+          become: false
+        - name: Download elastic-agent snapshot deb
+          ansible.builtin.get_url:
+            url: "{{ agent_artifact.json.packages['elastic-agent-' + elastic_version + '-' + elastic_deb_arch + '.deb'].url }}"
+            dest: "/tmp/elastic-agent-{{ elastic_version }}.deb"
+        - name: Install elastic-agent deb
+          ansible.builtin.apt:
+            deb: "/tmp/elastic-agent-{{ elastic_version }}.deb"
+            state: present
 
     - name: Create certs directory
       ansible.builtin.file:

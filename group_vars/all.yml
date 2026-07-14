@@ -13,13 +13,13 @@ gcp:
   region: "us-central1"
   zone: "us-central1-a"
 
-agent_count: 1
+agent_count: 0
 
 # Use ansible-vault to encrypt this in production:
 #   ansible-vault encrypt_string 'changeme' --name elastic_password
 elastic_password: "changeme"
 
-elastic_version: "9.3.2"  # override with e.g. 9.0.0 for version 9
+elastic_version: "9.5.0-SNAPSHOT"  # override with e.g. 9.0.0 for version 9
 
 # Must be 32+ chars. Use ansible-vault to protect in production.
 kibana_encryption_key: "2473f2399b0fef80f52784ce93024a5f9be3da4d79907133f7f21a1926b253e7"
