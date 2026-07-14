@@ -167,6 +167,8 @@ resource "local_file" "ansible_inventory" {
 # ── Populate known_hosts ───────────────────────────────────────────────────────
 
 resource "null_resource" "known_hosts" {
+  depends_on = [module.multipass, module.aws, module.gcp, module.libvirt]
+
   triggers = {
     es_ip     = local.es_ip
     kibana_ip = local.kibana_ip

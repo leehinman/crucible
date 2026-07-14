@@ -27,4 +27,4 @@ kibana_encryption_key: "2473f2399b0fef80f52784ce93024a5f9be3da4d79907133f7f21a19
 # Libvirt provider config (used when provider: libvirt)
 libvirt:
   uri: "qemu:///system"
-  storage_pool: "default"
+  storage_pool: "elastic-cluster"

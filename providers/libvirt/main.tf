@@ -12,7 +12,7 @@ variable "agent_count"        { type = number }
 variable "cloud_init_content" { type = string }
 variable "storage_pool" {
   type    = string
-  default = "default"
+  default = "elastic-cluster"
 }
 
 locals {
@@ -22,6 +22,14 @@ locals {
   agent_ips = [for i in range(var.agent_count) : "192.168.100.${20 + i}"]
 
   ubuntu_image_url = "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img"
+}
+
+# ── Storage pool ──────────────────────────────────────────────────────────────
+
+resource "libvirt_pool" "cluster" {
+  name = var.storage_pool
+  type = "dir"
+  path = "/var/lib/libvirt/images/${var.storage_pool}"
 }
 
 # ── Network ────────────────────────────────────────────────────────────────────
@@ -39,7 +47,7 @@ resource "libvirt_network" "cluster" {
 
 resource "libvirt_volume" "ubuntu_base" {
   name   = "ubuntu-24.04-noble-base.qcow2"
-  pool   = var.storage_pool
+  pool   = libvirt_pool.cluster.name
   source = local.ubuntu_image_url
   format = "qcow2"
 }
@@ -48,7 +56,7 @@ resource "libvirt_volume" "ubuntu_base" {
 
 resource "libvirt_volume" "es" {
   name           = "es.qcow2"
-  pool           = var.storage_pool
+  pool           = libvirt_pool.cluster.name
   base_volume_id = libvirt_volume.ubuntu_base.id
   format         = "qcow2"
   size           = 10737418240  # 10 GiB
@@ -56,7 +64,7 @@ resource "libvirt_volume" "es" {
 
 resource "libvirt_volume" "kibana" {
   name           = "kibana.qcow2"
-  pool           = var.storage_pool
+  pool           = libvirt_pool.cluster.name
   base_volume_id = libvirt_volume.ubuntu_base.id
   format         = "qcow2"
   size           = 10737418240
@@ -64,7 +72,7 @@ resource "libvirt_volume" "kibana" {
 
 resource "libvirt_volume" "fleet" {
   name           = "fleet.qcow2"
-  pool           = var.storage_pool
+  pool           = libvirt_pool.cluster.name
   base_volume_id = libvirt_volume.ubuntu_base.id
   format         = "qcow2"
   size           = 10737418240
@@ -73,7 +81,7 @@ resource "libvirt_volume" "fleet" {
 resource "libvirt_volume" "agents" {
   count          = var.agent_count
   name           = "a${count.index}.qcow2"
-  pool           = var.storage_pool
+  pool           = libvirt_pool.cluster.name
   base_volume_id = libvirt_volume.ubuntu_base.id
   format         = "qcow2"
   size           = 10737418240
@@ -83,21 +91,21 @@ resource "libvirt_volume" "agents" {
 
 resource "libvirt_cloudinit_disk" "es" {
   name           = "es-init.iso"
-  pool           = var.storage_pool
+  pool           = libvirt_pool.cluster.name
   user_data      = var.cloud_init_content
   network_config = templatefile("${path.module}/network-config.tftpl", { ip = local.es_ip })
 }
 
 resource "libvirt_cloudinit_disk" "kibana" {
   name           = "kibana-init.iso"
-  pool           = var.storage_pool
+  pool           = libvirt_pool.cluster.name
   user_data      = var.cloud_init_content
   network_config = templatefile("${path.module}/network-config.tftpl", { ip = local.kibana_ip })
 }
 
 resource "libvirt_cloudinit_disk" "fleet" {
   name           = "fleet-init.iso"
-  pool           = var.storage_pool
+  pool           = libvirt_pool.cluster.name
   user_data      = var.cloud_init_content
   network_config = templatefile("${path.module}/network-config.tftpl", { ip = local.fleet_ip })
 }
@@ -105,7 +113,7 @@ resource "libvirt_cloudinit_disk" "fleet" {
 resource "libvirt_cloudinit_disk" "agents" {
   count          = var.agent_count
   name           = "a${count.index}-init.iso"
-  pool           = var.storage_pool
+  pool           = libvirt_pool.cluster.name
   user_data      = var.cloud_init_content
   network_config = templatefile("${path.module}/network-config.tftpl", { ip = local.agent_ips[count.index] })
 }
