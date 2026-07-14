@@ -22,7 +22,7 @@ terraform {
     }
     libvirt = {
       source  = "dmacvicar/libvirt"
-      version = "~> 0.8"
+      version = "~> 0.7.0"
     }
   }
 }
