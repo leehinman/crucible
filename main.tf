@@ -179,7 +179,11 @@ resource "null_resource" "known_hosts" {
   provisioner "local-exec" {
     command = <<-EOT
       for h in ${join(" ", concat([local.es_ip, local.kibana_ip, local.fleet_ip], local.agent_ips))}; do
+        deadline=$(($(date +%s) + 300))
         until ssh-keyscan -T 5 -H "$h" >> ~/.ssh/known_hosts 2>/dev/null; do
+          if [ $(date +%s) -ge $deadline ]; then
+            echo "Timed out waiting for SSH on $h after 5 minutes" >&2; exit 1
+          fi
           echo "Waiting for SSH on $h..."; sleep 5
         done
       done

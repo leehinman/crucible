@@ -1,6 +1,8 @@
 version: 2
 ethernets:
-  enp1s0:
+  id0:
+    match:
+      macaddress: "${mac}"
     addresses:
       - ${ip}/24
     routes:

@@ -21,6 +21,11 @@ locals {
   fleet_ip  = "192.168.100.12"
   agent_ips = [for i in range(var.agent_count) : "192.168.100.${20 + i}"]
 
+  es_mac     = "52:54:00:ab:cd:10"
+  kibana_mac = "52:54:00:ab:cd:11"
+  fleet_mac  = "52:54:00:ab:cd:12"
+  agent_macs = [for i in range(var.agent_count) : "52:54:00:ab:cd:${format("%02x", 20 + i)}"]
+
   ubuntu_image_url = "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img"
 }
 
@@ -93,21 +98,21 @@ resource "libvirt_cloudinit_disk" "es" {
   name           = "es-init.iso"
   pool           = libvirt_pool.cluster.name
   user_data      = var.cloud_init_content
-  network_config = templatefile("${path.module}/network-config.tftpl", { ip = local.es_ip })
+  network_config = templatefile("${path.module}/network-config.tftpl", { ip = local.es_ip, mac = local.es_mac })
 }
 
 resource "libvirt_cloudinit_disk" "kibana" {
   name           = "kibana-init.iso"
   pool           = libvirt_pool.cluster.name
   user_data      = var.cloud_init_content
-  network_config = templatefile("${path.module}/network-config.tftpl", { ip = local.kibana_ip })
+  network_config = templatefile("${path.module}/network-config.tftpl", { ip = local.kibana_ip, mac = local.kibana_mac })
 }
 
 resource "libvirt_cloudinit_disk" "fleet" {
   name           = "fleet-init.iso"
   pool           = libvirt_pool.cluster.name
   user_data      = var.cloud_init_content
-  network_config = templatefile("${path.module}/network-config.tftpl", { ip = local.fleet_ip })
+  network_config = templatefile("${path.module}/network-config.tftpl", { ip = local.fleet_ip, mac = local.fleet_mac })
 }
 
 resource "libvirt_cloudinit_disk" "agents" {
@@ -115,7 +120,7 @@ resource "libvirt_cloudinit_disk" "agents" {
   name           = "a${count.index}-init.iso"
   pool           = libvirt_pool.cluster.name
   user_data      = var.cloud_init_content
-  network_config = templatefile("${path.module}/network-config.tftpl", { ip = local.agent_ips[count.index] })
+  network_config = templatefile("${path.module}/network-config.tftpl", { ip = local.agent_ips[count.index], mac = local.agent_macs[count.index] })
 }
 
 # ── Domains ────────────────────────────────────────────────────────────────────
@@ -131,6 +136,7 @@ resource "libvirt_domain" "es" {
 
   network_interface {
     network_id     = libvirt_network.cluster.id
+    mac            = local.es_mac
     wait_for_lease = false
   }
 
@@ -152,6 +158,7 @@ resource "libvirt_domain" "kibana" {
 
   network_interface {
     network_id     = libvirt_network.cluster.id
+    mac            = local.kibana_mac
     wait_for_lease = false
   }
 
@@ -173,6 +180,7 @@ resource "libvirt_domain" "fleet" {
 
   network_interface {
     network_id     = libvirt_network.cluster.id
+    mac            = local.fleet_mac
     wait_for_lease = false
   }
 
@@ -195,6 +203,7 @@ resource "libvirt_domain" "agents" {
 
   network_interface {
     network_id     = libvirt_network.cluster.id
+    mac            = local.agent_macs[count.index]
     wait_for_lease = false
   }
 
