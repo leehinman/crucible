@@ -7,9 +7,9 @@ terraform {
   }
 }
 
-variable "ssh_key"         { type = string }
-variable "agent_count"     { type = number }
-variable "cloud_init_file" { type = string }
+variable "ssh_key"            { type = string }
+variable "agent_count"        { type = number }
+variable "cloud_init_content" { type = string }
 variable "storage_pool" {
   type    = string
   default = "default"
@@ -84,21 +84,21 @@ resource "libvirt_volume" "agents" {
 resource "libvirt_cloudinit_disk" "es" {
   name           = "es-init.iso"
   pool           = var.storage_pool
-  user_data      = file(var.cloud_init_file)
+  user_data      = var.cloud_init_content
   network_config = templatefile("${path.module}/network-config.tftpl", { ip = local.es_ip })
 }
 
 resource "libvirt_cloudinit_disk" "kibana" {
   name           = "kibana-init.iso"
   pool           = var.storage_pool
-  user_data      = file(var.cloud_init_file)
+  user_data      = var.cloud_init_content
   network_config = templatefile("${path.module}/network-config.tftpl", { ip = local.kibana_ip })
 }
 
 resource "libvirt_cloudinit_disk" "fleet" {
   name           = "fleet-init.iso"
   pool           = var.storage_pool
-  user_data      = file(var.cloud_init_file)
+  user_data      = var.cloud_init_content
   network_config = templatefile("${path.module}/network-config.tftpl", { ip = local.fleet_ip })
 }
 
@@ -106,7 +106,7 @@ resource "libvirt_cloudinit_disk" "agents" {
   count          = var.agent_count
   name           = "a${count.index}-init.iso"
   pool           = var.storage_pool
-  user_data      = file(var.cloud_init_file)
+  user_data      = var.cloud_init_content
   network_config = templatefile("${path.module}/network-config.tftpl", { ip = local.agent_ips[count.index] })
 }
 

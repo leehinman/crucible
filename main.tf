@@ -57,9 +57,16 @@ provider "aws" {
 }
 
 provider "google" {
-  project = local.gcp_cfg.project != "" ? local.gcp_cfg.project : null
-  region  = try(local.gcp_cfg.region, "us-central1")
-  zone    = try(local.gcp_cfg.zone, "us-central1-a")
+  project     = local.gcp_cfg.project != "" ? local.gcp_cfg.project : null
+  region      = try(local.gcp_cfg.region, "us-central1")
+  zone        = try(local.gcp_cfg.zone, "us-central1-a")
+  # Supply a dummy credential to prevent ADC lookup when GCP is not in use.
+  credentials = local.provider_name != "gcp" ? jsonencode({
+    type          = "authorized_user"
+    client_id     = "not-in-use"
+    client_secret = "not-in-use"
+    refresh_token = "not-in-use"
+  }) : null
 }
 
 provider "libvirt" {
@@ -107,13 +114,13 @@ module "gcp" {
 }
 
 module "libvirt" {
-  count           = local.provider_name == "libvirt" ? 1 : 0
-  source          = "./providers/libvirt"
-  ssh_key         = local.ssh_public_key
-  agent_count     = local.agent_count
-  cloud_init_file = local_file.cloud_init.filename
-  storage_pool    = try(local.libvirt_cfg.storage_pool, "default")
-  providers       = { libvirt = libvirt }
+  count              = local.provider_name == "libvirt" ? 1 : 0
+  source             = "./providers/libvirt"
+  ssh_key            = local.ssh_public_key
+  agent_count        = local.agent_count
+  cloud_init_content = local_file.cloud_init.content
+  storage_pool       = try(local.libvirt_cfg.storage_pool, "default")
+  providers          = { libvirt = libvirt }
 }
 
 # ── Unify IPs from whichever module is active ─────────────────────────────────
