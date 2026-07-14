@@ -178,12 +178,11 @@ resource "null_resource" "known_hosts" {
 
   provisioner "local-exec" {
     command = <<-EOT
-      ssh-keyscan -H ${local.es_ip}     >> ~/.ssh/known_hosts
-      ssh-keyscan -H ${local.kibana_ip} >> ~/.ssh/known_hosts
-      ssh-keyscan -H ${local.fleet_ip}  >> ~/.ssh/known_hosts
-      %{~ for ip in local.agent_ips }
-      ssh-keyscan -H ${ip}              >> ~/.ssh/known_hosts
-      %{~ endfor }
+      for h in ${join(" ", concat([local.es_ip, local.kibana_ip, local.fleet_ip], local.agent_ips))}; do
+        until ssh-keyscan -T 5 -H "$h" >> ~/.ssh/known_hosts 2>/dev/null; do
+          echo "Waiting for SSH on $h..."; sleep 5
+        done
+      done
     EOT
   }
 }
